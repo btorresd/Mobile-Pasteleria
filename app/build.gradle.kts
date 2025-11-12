@@ -56,6 +56,7 @@ dependencies {
     // --- APIs (Retrofit) ---
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0") // ¡Esta ya la tenías bien!
+    implementation("com.google.code.gson:gson:2.10.1")
 
     // --- Cámara (CameraX) ---
     val camerax_version = "1.3.3"
@@ -63,5 +64,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$camerax_version")
     implementation("androidx.camera:camera-lifecycle:$camerax_version")
     implementation("androidx.camera:camera-view:$camerax_version")
+
+
+
 
 }
