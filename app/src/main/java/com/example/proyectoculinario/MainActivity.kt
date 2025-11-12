@@ -1,36 +1,63 @@
+package com.example.proyectoculinario
 
-
-import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import android.app.Activity
+import android.content.Intent
 import android.graphics.Bitmap
+import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
-import java.io.ByteArrayOutputStream
+import android.widget.Button
+import android.widget.ImageView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import com.example.proyectoculinario.api.vision.*
+import com.example.proyectoculinario.api.meal.*
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.io.ByteArrayOutputStream
+
+
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var imageView: ImageView
+    private lateinit var btnCapturar: Button
+
+    // Inicialización de servicios API
+    private val visionApi = VisionApiClient.service
+    private val mealApi = MealApiClient.service
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
+        // Referencias a elementos del layout
+        imageView = findViewById(R.id.imageView)
+        btnCapturar = findViewById(R.id.btnCapturar)
 
-        // Aquí más adelante llamaremos a analizarImagen(bitmap)
+        // Acción del botón para tomar una foto
+        btnCapturar.setOnClickListener {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            resultLauncher.launch(intent)
+        }
     }
 
-    // Convierte una imagen Bitmap en Base64 (texto)
+    // Lanza la cámara y recibe el resultado (foto)
+    private val resultLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val imageBitmap = result.data?.extras?.get("data") as Bitmap
+            imageView.setImageBitmap(imageBitmap)
+            analizarImagen(imageBitmap)
+        }
+    }
+
+    // Convierte una imagen a Base64 para enviarla a la API
     private fun bitmapToBase64(bitmap: Bitmap): String {
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
@@ -54,33 +81,50 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        val call = VisionApiClient.service.analyzeImage(apiKey, request)
-
-        call.enqueue(object : Callback<VisionResponse> {
-            override fun onResponse(
-                call: Call<VisionResponse>,
-                response: Response<VisionResponse>
-            ) {
-                if (response.isSuccessful) {
-                    val labels = response.body()
-                        ?.responses
-                        ?.firstOrNull()
-                        ?.labelAnnotations
-
-                    if (!labels.isNullOrEmpty()) {
-                        val mejor = labels.maxByOrNull { it.score ?: 0f }
+        visionApi.analyzeImage(apiKey, request)
+            .enqueue(object : Callback<VisionResponse> {
+                override fun onResponse(
+                    call: Call<VisionResponse>,
+                    response: Response<VisionResponse>
+                ) {
+                    if (response.isSuccessful) {
+                        val labels = response.body()?.responses?.firstOrNull()?.labelAnnotations
+                        val mejor = labels?.maxByOrNull { it.score ?: 0f }
                         val nombreDetectado = mejor?.description ?: "Desconocido"
+
                         Log.d("VISION", "Detectado: $nombreDetectado")
+                        buscarReceta(nombreDetectado)
                     } else {
-                        Log.d("VISION", "No se detectaron etiquetas")
+                        Log.e("VISION", "Error: ${response.errorBody()?.string()}")
+                    }
+                }
+
+                override fun onFailure(call: Call<VisionResponse>, t: Throwable) {
+                    Log.e("VISION", "Fallo: ${t.message}")
+                }
+            })
+    }
+
+    // Busca una receta usando TheMealDB
+    private fun buscarReceta(nombre: String) {
+        mealApi.searchMeal(nombre).enqueue(object : Callback<MealResponse> {
+            override fun onResponse(call: Call<MealResponse>, response: Response<MealResponse>) {
+                if (response.isSuccessful) {
+                    val meal = response.body()?.meals?.firstOrNull()
+                    if (meal != null) {
+                        Log.i("MEAL", "🍽️ Receta encontrada: ${meal.strMeal}")
+                        Log.i("MEAL", "📝 Instrucciones: ${meal.strInstructions}")
+                        Log.i("MEAL", "📸 Imagen: ${meal.strMealThumb}")
+                    } else {
+                        Log.i("MEAL", "No se encontró receta para: $nombre")
                     }
                 } else {
-                    Log.e("VISION", "Error: ${response.errorBody()?.string()}")
+                    Log.e("MEAL", "Error: ${response.errorBody()?.string()}")
                 }
             }
 
-            override fun onFailure(call: Call<VisionResponse>, t: Throwable) {
-                Log.e("VISION", "Fallo: ${t.message}")
+            override fun onFailure(call: Call<MealResponse>, t: Throwable) {
+                Log.e("MEAL", "Fallo conexión: ${t.message}")
             }
         })
     }
